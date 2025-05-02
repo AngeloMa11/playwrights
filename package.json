@@ -1,0 +1,13 @@
+{
+  "name": "playwright-transcript-scraper",
+  "version": "1.0.0",
+  "description": "Scrape transcript using Playwright",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.41.1"
+  }
+}
