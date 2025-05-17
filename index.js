@@ -65,17 +65,20 @@ async function scrapeFathomTranscript(videoUrl) {
     if (showButton) {
       console.log('Transcript button found, clicking...');
       await showButton.click();
-      await page.waitForFunction(() => document.querySelector('page-call-detail-transcript')?.innerText.length > 0, { timeout: 180000 });
+      // Wait for content with extended timeout
+      await page.waitForFunction(() => {
+        const container = document.querySelector('page-call-detail-transcript');
+        return container && (container.innerText.length > 0 || Array.from(container.querySelectorAll('*')).some(el => el.innerText.trim().length > 0));
+      }, { timeout: 300000 });
       console.log('Transcript button clicked, content loading confirmed');
     } else {
       console.log('Transcript button not found, proceeding without click.');
+      // Wait for content even without button click
+      await page.waitForFunction(() => {
+        const container = document.querySelector('page-call-detail-transcript');
+        return container && (container.innerText.length > 0 || Array.from(container.querySelectorAll('*')).some(el => el.innerText.trim().length > 0));
+      }, { timeout: 300000 });
     }
-
-    // Wait for transcript content
-    await page.waitForFunction(() => {
-      const container = document.querySelector('page-call-detail-transcript');
-      return container && (container.innerText.length > 0 || Array.from(container.querySelectorAll('*')).some(el => el.innerText.trim()));
-    }, { timeout: 300000 });
 
     // Wait for any transcript-related API responses
     try {
