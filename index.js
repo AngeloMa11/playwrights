@@ -3,30 +3,80 @@ const { chromium } = require('playwright');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Use Render's assigned port or fallback to 3000
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 
 async function scrapeFathomTranscript(videoUrl) {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-
+  let browser;
   try {
+    console.log('Launching browser...');
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
-    await page.waitForSelector('[data-cue-index]', { timeout: 30000 });
+    console.log(`Navigated to ${videoUrl}`);
 
-    const transcript = await page.evaluate(() => {
-      const cues = Array.from(document.querySelectorAll('[data-cue-index]'));
-      return cues.map(cue => cue.textContent.trim()).join('\n');
-    });
+    await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 60000 });
+    console.log('Transcript container found');
 
-    return transcript;
+    const showButtonSelectors = [
+      'button:has-text("transcript")',
+      'button:has-text("show transcript")',
+      '[aria-label*="transcript"]',
+      '[role="button"][aria-label*="captions"]'
+    ];
+
+    let showButton = null;
+    for (const selector of showButtonSelectors) {
+      showButton = await page.$(selector);
+      if (showButton) break;
+    }
+
+    if (showButton) {
+      console.log('Transcript button found, clicking...');
+      await showButton.click();
+      await page.waitForTimeout(2000);
+      console.log('Transcript button clicked');
+    } else {
+      console.log('Transcript button not found.');
+    }
+
+    await page.waitForTimeout(5000);
+    let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
+    let transcript = [];
+
+    if (transcriptElements.length > 0) {
+      console.log(`${transcriptElements.length} transcript elements found.`);
+      for (const element of transcriptElements) {
+        const text = await element.innerText();
+        const cleanedText = text.trim();
+        if (cleanedText && !cleanedText.startsWith('[')) {
+          transcript.push(cleanedText);
+        }
+      }
+    } else {
+      console.log('Specific transcript elements not found, trying all elements.');
+      transcriptElements = await page.$$('page-call-detail-transcript *');
+      for (const element of transcriptElements) {
+        const text = await element.innerText();
+        const cleanedText = text.trim();
+        if (cleanedText && !cleanedText.startsWith('[')) {
+          transcript.push(cleanedText);
+        }
+      }
+    }
+
+    const transcriptText = transcript.length > 0 ? transcript.join('\n') : 'No transcript found.';
+    console.log('Transcript scraped:', transcriptText);
+    return transcriptText;
   } catch (err) {
     console.error('Transcript scraping error:', err.message);
-    return 'Transcript unavailable';
+    return `Transcript unavailable: ${err.message}`;
   } finally {
-    await browser.close();
+    if (browser) await browser.close().catch(err => console.error('Browser close failed:', err.message));
+    console.log('Browser closed');
   }
 }
 
@@ -38,14 +88,18 @@ app.post('/scrape', async (req, res) => {
 
   let browser;
   try {
+    console.log('Launching browser for metadata scraping...');
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
+    console.log(`Navigated to ${videoUrl} for metadata`);
 
     await page.waitForSelector('#app', { timeout: 30000 });
+    console.log('#app element found');
+
     const appDataHandle = await page.$('#app');
     const dataPageJson = await appDataHandle.getAttribute('data-page');
-    const dataPage = JSON.parse(dataPageJson);
+    const dataPage = JSON.parse(dataPageJson.replace(/\\"/g, '"')); // Handle escaped quotes if needed
 
     const callData = dataPage.props.call;
 
@@ -72,12 +126,13 @@ app.post('/scrape', async (req, res) => {
     });
   } catch (err) {
     console.error('Main scraping error:', err.message);
-    res.status(500).json({ error: 'Failed to scrape call data' });
+    res.status(500).json({ error: `Failed to scrape call data: ${err.message}` });
   } finally {
-    if (browser) await browser.close();
+    if (browser) await browser.close().catch(err => console.error('Browser close failed:', err.message));
+    console.log('Browser closed');
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => { // Bind to 0.0.0.0 to work with Render
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
