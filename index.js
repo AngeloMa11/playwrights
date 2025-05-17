@@ -11,12 +11,12 @@ app.use(express.json());
 async function scrapeFathomTranscript(videoUrl) {
   let browser;
   try {
-    console.log('Launching browser...');
+    console.log('Launching browser for transcript...');
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
-    console.log(`Navigated to ${videoUrl}`);
+    console.log(`Navigated to ${videoUrl} for transcript`);
 
     await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 60000 });
     console.log('Transcript container found');
@@ -94,12 +94,23 @@ app.post('/scrape', async (req, res) => {
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
     console.log(`Navigated to ${videoUrl} for metadata`);
 
-    await page.waitForSelector('#app', { timeout: 30000 });
-    console.log('#app element found');
+    // Wait for #app to exist in the DOM (not necessarily visible)
+    const appDataHandle = await page.waitForSelector('#app', { state: 'attached', timeout: 30000 });
+    if (!appDataHandle) {
+      throw new Error('#app element not found in the DOM');
+    }
+    console.log('#app element found in DOM');
 
-    const appDataHandle = await page.$('#app');
-    const dataPageJson = await appDataHandle.getAttribute('data-page');
-    const dataPage = JSON.parse(dataPageJson.replace(/\\"/g, '"')); // Handle escaped quotes if needed
+    // Get the data-page attribute
+    let dataPageJson = await appDataHandle.getAttribute('data-page');
+    if (!dataPageJson) {
+      throw new Error('data-page attribute not found on #app element');
+    }
+
+    // Clean up the JSON string by removing invalid characters and fixing quotes
+    dataPageJson = dataPageJson.replace(/[\u0000-\u001F]+/g, ''); // Remove control characters
+    const dataPage = JSON.parse(dataPageJson);
+    console.log('data-page attribute parsed successfully');
 
     const callData = dataPage.props.call;
 
