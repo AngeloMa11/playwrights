@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; // Use Render's assigned port or fallback to 3000
 
 app.use(cors());
 app.use(express.json());
@@ -42,7 +42,6 @@ app.post('/scrape', async (req, res) => {
     const page = await browser.newPage();
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
 
-    // Wait for app data to be available
     await page.waitForSelector('#app', { timeout: 30000 });
     const appDataHandle = await page.$('#app');
     const dataPageJson = await appDataHandle.getAttribute('data-page');
@@ -50,7 +49,6 @@ app.post('/scrape', async (req, res) => {
 
     const callData = dataPage.props.call;
 
-    // Extract fields
     const CallDate = new Date(callData.started_at).toISOString().split('T')[0];
     const SalespersonName = callData.host?.email || 'Unknown';
     const ProspectName = callData.byline || 'Unknown';
@@ -61,7 +59,6 @@ app.post('/scrape', async (req, res) => {
     const TranscriptLink = callData.video_url || videoUrl;
     const Title = callData.title || 'No Title';
 
-    // Get transcript
     const Transcript = await scrapeFathomTranscript(videoUrl);
 
     res.json({
@@ -81,12 +78,6 @@ app.post('/scrape', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => { // Bind to 0.0.0.0 to work with Render
   console.log(`Server running on port ${PORT}`);
-});
-
-
-const port = process.env.PORT || 5000;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on port ${port}`);
 });
