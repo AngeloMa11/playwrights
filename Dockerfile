@@ -11,8 +11,5 @@ RUN npm install
 # Copy rest of the app files
 COPY . .
 
-# Expose port 5000
-EXPOSE 5000
-
-# Run the app
+# No EXPOSE instruction needed; let the app use process.env.PORT
 CMD ["node", "index.js"]
