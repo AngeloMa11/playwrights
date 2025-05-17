@@ -1,7 +1,7 @@
 {
-  "name": "playwright-transcript-scraper",
+  "name": "fathom-scraper-service",
   "version": "1.0.0",
-  "description": "Scrape transcript using Playwright",
+  "description": "Fathom video scraper service",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
