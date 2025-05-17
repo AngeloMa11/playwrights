@@ -15,7 +15,7 @@ async function scrapeFathomTranscript(videoUrl) {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
-    await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(videoUrl, { waitUntil: 'networkidle', timeout: 60000 });
     console.log(`Navigated to ${videoUrl} for transcript`);
 
     await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 60000 });
@@ -37,20 +37,20 @@ async function scrapeFathomTranscript(videoUrl) {
     if (showButton) {
       console.log('Transcript button found, clicking...');
       await showButton.click();
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(5000); // Increased wait after click
       console.log('Transcript button clicked');
     } else {
       console.log('Transcript button not found.');
     }
 
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(10000); // Increased wait for transcript to load
     let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
     let transcript = [];
 
     if (transcriptElements.length > 0) {
-      console.log(`${transcriptElements.length} transcript elements found.`);
+      console.log(`${transcriptElements.length} transcript elements found (specific classes).`);
       for (const element of transcriptElements) {
-        const text = await element.innerText();
+        const text = await element.innerText({ timeout: 60000 }); // Increased timeout for innerText
         const cleanedText = text.trim();
         if (cleanedText && !cleanedText.startsWith('[')) {
           transcript.push(cleanedText);
@@ -60,7 +60,7 @@ async function scrapeFathomTranscript(videoUrl) {
       console.log('Specific transcript elements not found, trying all elements.');
       transcriptElements = await page.$$('page-call-detail-transcript *');
       for (const element of transcriptElements) {
-        const text = await element.innerText();
+        const text = await element.innerText({ timeout: 60000 }); // Increased timeout for innerText
         const cleanedText = text.trim();
         if (cleanedText && !cleanedText.startsWith('[')) {
           transcript.push(cleanedText);
@@ -91,24 +91,21 @@ app.post('/scrape', async (req, res) => {
     console.log('Launching browser for metadata scraping...');
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
-    await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(videoUrl, { waitUntil: 'networkidle', timeout: 60000 });
     console.log(`Navigated to ${videoUrl} for metadata`);
 
-    // Wait for #app to exist in the DOM (not necessarily visible)
     const appDataHandle = await page.waitForSelector('#app', { state: 'attached', timeout: 30000 });
     if (!appDataHandle) {
       throw new Error('#app element not found in the DOM');
     }
     console.log('#app element found in DOM');
 
-    // Get the data-page attribute
     let dataPageJson = await appDataHandle.getAttribute('data-page');
     if (!dataPageJson) {
       throw new Error('data-page attribute not found on #app element');
     }
 
-    // Clean up the JSON string by removing invalid characters and fixing quotes
-    dataPageJson = dataPageJson.replace(/[\u0000-\u001F]+/g, ''); // Remove control characters
+    dataPageJson = dataPageJson.replace(/[-\u001F]+/g, ''); // Remove control characters
     const dataPage = JSON.parse(dataPageJson);
     console.log('data-page attribute parsed successfully');
 
