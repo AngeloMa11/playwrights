@@ -326,9 +326,49 @@ app.post('/scrape', async (req, res) => {
             else if (text && !participant) participant = text;
           }
           
+          // Check for date format and sanitize
+          const sanitizeDate = (dateStr) => {
+            if (!dateStr) return new Date().toISOString();
+            
+            // Try to parse the date as-is first
+            let date = new Date(dateStr);
+            
+            // If invalid, try different formats
+            if (isNaN(date.getTime())) {
+              // Try to extract date patterns
+              const isoPattern = dateStr.match(/\d{4}-\d{2}-\d{2}/);
+              if (isoPattern) {
+                return new Date(isoPattern[0]).toISOString();
+              }
+              
+              // Try common date formats
+              const commonPattern = dateStr.match(/(\w+)\s+(\d{1,2}),?\s+(\d{4})/);
+              if (commonPattern) {
+                const months = {
+                  'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
+                  'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11,
+                  'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'jun': 5, 'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+                };
+                
+                const month = months[commonPattern[1].toLowerCase()];
+                const day = parseInt(commonPattern[2]);
+                const year = parseInt(commonPattern[3]);
+                
+                if (month !== undefined && !isNaN(day) && !isNaN(year)) {
+                  return new Date(year, month, day).toISOString();
+                }
+              }
+              
+              // Return current date as fallback
+              return new Date().toISOString();
+            }
+            
+            return date.toISOString();
+          };
+          
           extractedData = {
             title: title,
-            started_at: dateText || new Date().toISOString(),
+            started_at: sanitizeDate(dateText),
             host: { email: host || 'Unknown Host' },
             byline: participant || 'Unknown Participant',
             video_url: window.location.href
@@ -344,11 +384,18 @@ app.post('/scrape', async (req, res) => {
       console.log('Could not extract call data, using defaults');
       callData = {
         title: 'Unknown Call',
-        started_at: new Date().toISOString(),
+        started_at: new Date().toISOString(), // Using current date as fallback
         host: { email: 'Unknown Host' },
         byline: 'Unknown Participant',
         video_url: videoUrl
       };
+    }
+    
+    // Ensure started_at is valid
+    if (!callData.started_at || typeof callData.started_at !== 'string' || 
+        callData.started_at === 'undefined' || callData.started_at === 'null') {
+      console.log('Invalid started_at value, using current date');
+      callData.started_at = new Date().toISOString();
     }
 
     // Get duration if available
@@ -370,7 +417,29 @@ app.post('/scrape', async (req, res) => {
     }
 
     // Format the data
-    const CallDate = new Date(callData.started_at).toISOString().split('T')[0];
+    // Safely parse the date, with error handling
+    let CallDate;
+    try {
+      // First check if started_at is valid
+      if (!callData.started_at || callData.started_at === 'undefined' || callData.started_at === 'null') {
+        throw new Error('Invalid date value');
+      }
+      
+      // Try to create a date object
+      const dateObj = new Date(callData.started_at);
+      
+      // Check if the date is valid
+      if (isNaN(dateObj.getTime())) {
+        throw new Error('Invalid date object');
+      }
+      
+      CallDate = dateObj.toISOString().split('T')[0];
+    } catch (err) {
+      console.log('Error parsing date:', err.message);
+      // Fallback to current date
+      CallDate = new Date().toISOString().split('T')[0];
+    }
+    
     const SalespersonName = callData.host?.email || 'Unknown';
     const ProspectName = callData.byline || 'Unknown';
     const minutes = Math.floor(callDurationSeconds / 60);
