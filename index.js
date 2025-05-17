@@ -13,11 +13,12 @@ async function scrapeFathomTranscript(videoUrl) {
   try {
     console.log('Launching browser for transcript...');
     browser = await chromium.launch({ headless: true });
+    console.log('Browser launched successfully');
     const page = await browser.newPage({ viewport: null });
 
     console.log('Navigating to', videoUrl);
-    await page.goto(videoUrl, { waitUntil: 'networkidle', timeout: 300000 }); // 5-minute timeout
-    console.log('Navigation completed');
+    await page.goto(videoUrl, { waitUntil: 'load', timeout: 300000 }); // 5-minute timeout
+    console.log(`Navigated to ${videoUrl}`);
 
     // Check for redirects or login pages
     const currentUrl = page.url();
@@ -30,7 +31,7 @@ async function scrapeFathomTranscript(videoUrl) {
         await page.fill('input[name="email"], input[type="email"]', 'your-email@example.com'); // Replace with actual email
         await page.fill('input[name="password"], input[type="password"]', 'your-password'); // Replace with actual password
         await page.click('button[type="submit"], input[type="submit"]');
-        await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 120000 });
+        await page.waitForNavigation({ waitUntil: 'load', timeout: 120000 });
         console.log('Login attempted, new URL:', page.url());
       } else {
         throw new Error('Redirected to unexpected URL, possibly a login page');
@@ -38,17 +39,9 @@ async function scrapeFathomTranscript(videoUrl) {
     }
 
     // Wait for transcript container
-    const transcriptPath = 'page-call-detail-transcript';
-    let transcriptContainer = null;
-    try {
-      transcriptContainer = await page.waitForSelector(transcriptPath, { state: 'attached', timeout: 300000 });
-    } catch (err) {
-      console.error('Transcript container not found:', err.message);
-      throw new Error('Transcript container not found');
-    }
+    await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 300000 });
     console.log('Transcript container found');
 
-    // Click transcript button if present
     const showButtonSelectors = [
       'button:has-text("transcript")',
       'button:has-text("show transcript")',
@@ -65,28 +58,13 @@ async function scrapeFathomTranscript(videoUrl) {
     if (showButton) {
       console.log('Transcript button found, clicking...');
       await showButton.click();
-      // Wait for content with extended timeout
-      await page.waitForFunction(() => {
-        const container = document.querySelector('page-call-detail-transcript');
-        return container && (container.innerText.length > 0 || Array.from(container.querySelectorAll('*')).some(el => el.innerText.trim().length > 0));
-      }, { timeout: 300000 });
-      console.log('Transcript button clicked, content loading confirmed');
+      await page.waitForTimeout(5000); // Increased wait for animation/content
+      console.log('Transcript button clicked');
     } else {
-      console.log('Transcript button not found, proceeding without click.');
-      // Wait for content even without button click
-      await page.waitForFunction(() => {
-        const container = document.querySelector('page-call-detail-transcript');
-        return container && (container.innerText.length > 0 || Array.from(container.querySelectorAll('*')).some(el => el.innerText.trim().length > 0));
-      }, { timeout: 300000 });
+      console.log('Transcript button not found.');
     }
 
-    // Wait for any transcript-related API responses
-    try {
-      await page.waitForResponse(response => response.url().includes('transcript') && response.status() === 200, { timeout: 180000 });
-      console.log('Transcript API response received');
-    } catch (err) {
-      console.log('No transcript API response found, proceeding with DOM scraping:', err.message);
-    }
+    await page.waitForTimeout(10000); // Increased wait for transcript to fully load
 
     let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
     let transcript = [];
@@ -96,7 +74,7 @@ async function scrapeFathomTranscript(videoUrl) {
       for (const element of transcriptElements) {
         let text;
         if (await element.isVisible()) {
-          text = await element.innerText({ timeout: 180000 });
+          text = await element.innerText({ timeout: 60000 });
         } else {
           console.log('Element hidden, forcing text extraction...');
           text = await element.evaluate(el => el.textContent || el.innerText);
@@ -107,12 +85,12 @@ async function scrapeFathomTranscript(videoUrl) {
         }
       }
     } else {
-      console.log('Specific transcript elements not found, trying all elements.');
+      console.log('Specific transcript elements not found, trying all elements within the container.');
       transcriptElements = await page.$$('page-call-detail-transcript *');
       for (const element of transcriptElements) {
         let text;
         if (await element.isVisible()) {
-          text = await element.innerText({ timeout: 180000 });
+          text = await element.innerText({ timeout: 60000 });
         } else {
           console.log('Element hidden, forcing text extraction...');
           text = await element.evaluate(el => el.textContent || el.innerText);
