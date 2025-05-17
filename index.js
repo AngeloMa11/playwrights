@@ -9,16 +9,43 @@ async function scrapeFathomTranscript(videoUrl) {
   try {
     console.log('Launching browser...');
     browser = await chromium.launch({ headless: true });
-    console.log('Browser launched successfully');
     const page = await browser.newPage();
 
-    // Increased timeout for page.goto and changed waitUntil to 'load'
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 60000 });
     console.log(`Navigated to ${videoUrl}`);
 
-    // Increased timeout for waitForSelector
+    // Extract metadata from #app[data-page]
+    const meta = await page.evaluate(() => {
+      const appDiv = document.querySelector('#app');
+      if (!appDiv) return {};
+
+      const data = appDiv.getAttribute('data-page');
+      if (!data) return {};
+
+      try {
+        const parsed = JSON.parse(data);
+        const call = parsed?.props?.call;
+        const durationSec = parsed?.props?.duration;
+        const startedAt = call?.started_at;
+
+        const callDate = startedAt ? new Date(startedAt).toISOString().split('T')[0] : 'Unknown';
+        const durationMin = Math.floor(durationSec / 60);
+        const durationRemSec = Math.floor(durationSec % 60);
+
+        return {
+          CallDate: callDate,
+          SalespersonName: call?.byline || 'Unknown',
+          ProspectName: call?.host?.email || 'Unknown',
+          CallDuration: `${durationMin} minutes ${durationRemSec} seconds`,
+          TranscriptLink: call?.video_url || 'Unavailable',
+        };
+      } catch (err) {
+        return {};
+      }
+    });
+
+    // Wait and try to reveal transcript if needed
     await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 60000 });
-    console.log('Transcript container found');
 
     const showButtonSelectors = [
       'button:has-text("transcript")',
@@ -27,58 +54,43 @@ async function scrapeFathomTranscript(videoUrl) {
       '[role="button"][aria-label*="captions"]'
     ];
 
-    let showButton = null;
     for (const selector of showButtonSelectors) {
-      showButton = await page.$(selector);
-      if (showButton) {
+      const button = await page.$(selector);
+      if (button) {
+        await button.click();
+        await page.waitForTimeout(2000);
         break;
       }
     }
 
-    if (showButton) {
-      console.log('Transcript button found, clicking...');
-      await showButton.click();
-      await page.waitForTimeout(2000); // Wait for animation/content to appear
-      console.log('Transcript button clicked');
-    } else {
-      console.log('Transcript button not found.');
+    await page.waitForTimeout(5000);
+
+    // Scrape transcript
+    let transcript = [];
+    let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
+
+    if (transcriptElements.length === 0) {
+      transcriptElements = await page.$$('page-call-detail-transcript *');
     }
 
-    await page.waitForTimeout(5000); // Give some time for the transcript to fully load
-
-    let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
-    let transcript = [];
-
-    if (transcriptElements.length > 0) {
-      console.log(`${transcriptElements.length} transcript elements found (specific classes).`);
-      for (const element of transcriptElements) {
-        const text = await element.innerText();
-        const cleanedText = text.trim();
-        if (cleanedText && !cleanedText.startsWith('[')) {
-          transcript.push(cleanedText);
-        }
-      }
-    } else {
-      console.log('Specific transcript elements not found, trying all elements within the container.');
-      transcriptElements = await page.$$('page-call-detail-transcript *');
-      for (const element of transcriptElements) {
-        const text = await element.innerText();
-        const cleanedText = text.trim();
-        if (cleanedText && !cleanedText.startsWith('[')) {
-          transcript.push(cleanedText);
-        }
+    for (const element of transcriptElements) {
+      const text = await element.innerText();
+      const cleanedText = text.trim();
+      if (cleanedText && !cleanedText.startsWith('[')) {
+        transcript.push(cleanedText);
       }
     }
 
     const transcriptText = transcript.length > 0 ? transcript.join('\n') : 'No transcript found.';
-    console.log('Transcript scraped:', transcriptText);
-    return transcriptText;
+
+    return {
+      ...meta,
+      Transcript: transcriptText,
+    };
   } catch (error) {
-    const errorMessage = `Error scraping transcript: ${error.message}`;
-    console.error(errorMessage);
-    return errorMessage;
+    return { error: `Error scraping: ${error.message}` };
   } finally {
-    if (browser) await browser.close().catch(err => console.error('Browser close failed:', err.message));
+    if (browser) await browser.close();
     console.log('Browser closed');
   }
 }
@@ -92,8 +104,8 @@ app.post('/scrape', async (req, res) => {
   if (!videoUrl) {
     return res.status(400).json({ error: 'Missing videoUrl' });
   }
-  const transcript = await scrapeFathomTranscript(videoUrl);
-  res.json({ transcript });
+  const result = await scrapeFathomTranscript(videoUrl);
+  res.json(result);
 });
 
 const port = process.env.PORT || 5000;
