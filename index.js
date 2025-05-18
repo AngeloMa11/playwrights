@@ -13,12 +13,12 @@ async function scrapeFathomTranscript(videoUrl) {
   try {
     console.log('Launching browser for transcript...');
     browser = await chromium.launch({ headless: true });
-    console.log('Browser launched successfully');
     const page = await browser.newPage({ viewport: null });
 
     console.log('Navigating to', videoUrl);
-    await page.goto(videoUrl, { waitUntil: 'load', timeout: 300000 }); // 5-minute timeout
-    console.log(`Navigated to ${videoUrl}`);
+    // Reduced timeout to 120 seconds and use 'load' for faster initial load
+    await page.goto(videoUrl, { waitUntil: 'load', timeout: 120000 });
+    console.log('Navigation completed (page loaded)');
 
     // Check for redirects or login pages
     const currentUrl = page.url();
@@ -31,17 +31,25 @@ async function scrapeFathomTranscript(videoUrl) {
         await page.fill('input[name="email"], input[type="email"]', 'your-email@example.com'); // Replace with actual email
         await page.fill('input[name="password"], input[type="password"]', 'your-password'); // Replace with actual password
         await page.click('button[type="submit"], input[type="submit"]');
-        await page.waitForNavigation({ waitUntil: 'load', timeout: 120000 });
+        await page.waitForNavigation({ waitUntil: 'load', timeout: 60000 });
         console.log('Login attempted, new URL:', page.url());
       } else {
         throw new Error('Redirected to unexpected URL, possibly a login page');
       }
     }
 
-    // Wait for transcript container
-    await page.waitForSelector('page-call-detail-transcript', { state: 'attached', timeout: 300000 });
+    // Wait for transcript container with reduced timeout
+    const transcriptPath = 'page-call-detail-transcript';
+    let transcriptContainer = null;
+    try {
+      transcriptContainer = await page.waitForSelector(transcriptPath, { state: 'attached', timeout: 60000 });
+    } catch (err) {
+      console.error('Transcript container not found:', err.message);
+      throw new Error('Transcript container not found');
+    }
     console.log('Transcript container found');
 
+    // Click transcript button if present
     const showButtonSelectors = [
       'button:has-text("transcript")',
       'button:has-text("show transcript")',
@@ -58,13 +66,11 @@ async function scrapeFathomTranscript(videoUrl) {
     if (showButton) {
       console.log('Transcript button found, clicking...');
       await showButton.click();
-      await page.waitForTimeout(5000); // Increased wait for animation/content
+      await page.waitForTimeout(2000); // Minimal wait for content to appear
       console.log('Transcript button clicked');
     } else {
-      console.log('Transcript button not found.');
+      console.log('Transcript button not found, proceeding without click.');
     }
-
-    await page.waitForTimeout(10000); // Increased wait for transcript to fully load
 
     let transcriptElements = await page.$$('page-call-detail-transcript div[class*="transcript-line"], page-call-detail-transcript div[class*="transcript-text"], page-call-detail-transcript div');
     let transcript = [];
@@ -74,7 +80,7 @@ async function scrapeFathomTranscript(videoUrl) {
       for (const element of transcriptElements) {
         let text;
         if (await element.isVisible()) {
-          text = await element.innerText({ timeout: 60000 });
+          text = await element.innerText({ timeout: 30000 });
         } else {
           console.log('Element hidden, forcing text extraction...');
           text = await element.evaluate(el => el.textContent || el.innerText);
@@ -85,12 +91,12 @@ async function scrapeFathomTranscript(videoUrl) {
         }
       }
     } else {
-      console.log('Specific transcript elements not found, trying all elements within the container.');
+      console.log('Specific transcript elements not found, trying all elements.');
       transcriptElements = await page.$$('page-call-detail-transcript *');
       for (const element of transcriptElements) {
         let text;
         if (await element.isVisible()) {
-          text = await element.innerText({ timeout: 60000 });
+          text = await element.innerText({ timeout: 30000 });
         } else {
           console.log('Element hidden, forcing text extraction...');
           text = await element.evaluate(el => el.textContent || el.innerText);
@@ -127,7 +133,7 @@ app.post('/scrape-transcript', async (req, res) => {
 
   let transcript = 'Transcript unavailable';
   let attempt = 0;
-  const maxAttempts = 5;
+  const maxAttempts = 3; // Reduced to 3 for faster failure
 
   while (attempt < maxAttempts) {
     console.log(`Attempt ${attempt + 1} of ${maxAttempts}`);
@@ -138,7 +144,7 @@ app.post('/scrape-transcript', async (req, res) => {
       console.error(`Attempt ${attempt + 1} failed:`, err.message);
     }
     attempt++;
-    if (attempt < maxAttempts) await new Promise(resolve => setTimeout(resolve, 15000)); // Wait 15 seconds before retry
+    if (attempt < maxAttempts) await new Promise(resolve => setTimeout(resolve, 10000)); // Reduced to 10 seconds
   }
 
   res.json({ transcript });
