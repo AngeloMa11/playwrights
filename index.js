@@ -40,9 +40,16 @@ async function scrapeFathomTranscript(videoUrl) {
     });
     await page.waitForTimeout(2000);
 
-    const transcriptElements = await page.$$(
-      'page-call-detail-transcript div[class*="transcript-line"], div[class*="transcript-text"]'
-    );
+let transcriptElements = await page.$$(
+  'page-call-detail-transcript div[class*="transcript-line"], div[class*="transcript-text"]'
+);
+console.log('Transcript elements found (specific):', transcriptElements.length);
+
+if (transcriptElements.length === 0) {
+  console.warn('No specific transcript classes found, using all child elements as fallback...');
+  transcriptElements = await page.$$('page-call-detail-transcript div');
+}
+
 
     const transcript = [];
     for (const element of transcriptElements) {
