@@ -5,6 +5,15 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const cleanedText = text.trim();
+if (
+  cleanedText &&
+  !cleanedText.startsWith('[') &&
+  !cleanedText.toLowerCase().includes('resume auto-scroll')
+) {
+  transcript.push(cleanedText);
+}
+
 app.use(cors());
 app.use(express.json());
 
