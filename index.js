@@ -17,61 +17,30 @@ async function scrapeFathomTranscript(videoUrl) {
 
     console.log('Navigating to', videoUrl);
     await page.goto(videoUrl, { waitUntil: 'load', timeout: 120000 });
-    console.log('Navigation completed (page loaded)');
+    console.log('Navigation completed');
 
     const currentUrl = page.url();
-    console.log(`Current URL after navigation: ${currentUrl}`);
     if (!currentUrl.includes('fathom.video/share')) {
       const emailInput = await page.$('input[name="email"], input[type="email"]');
       if (emailInput) {
-        console.log('Login page detected, attempting authentication...');
-        await page.fill('input[name="email"], input[type="email"]', 'your-email@example.com');
-        await page.fill('input[name="password"], input[type="password"]', 'your-password');
-        await page.click('button[type="submit"], input[type="submit"]');
-        await page.waitForNavigation({ waitUntil: 'load', timeout: 60000 });
-        console.log('Login attempted, new URL:', page.url());
-      } else {
-        throw new Error('Redirected to unexpected URL, possibly a login page');
+        console.log('Login required – please automate login or provide shared link');
+        throw new Error('Login page detected, cannot proceed with shared link scraping');
       }
     }
 
-    // Attendi che la trascrizione sia caricata
-    const transcriptPath = 'page-call-detail-transcript';
-    const transcriptContainer = await page.waitForSelector(transcriptPath, { state: 'attached', timeout: 60000 });
+    const transcriptContainer = await page.waitForSelector('page-call-detail-transcript', {
+      state: 'attached',
+      timeout: 60000,
+    });
     console.log('Transcript container found');
 
-    // Click sul pulsante "Transcript" se presente
-    const showButtonSelectors = [
-      'button:has-text("transcript")',
-      'button:has-text("show transcript")',
-      '[aria-label*="transcript"]',
-      '[role="button"][aria-label*="captions"]'
-    ];
-    for (const selector of showButtonSelectors) {
-      const btn = await page.$(selector);
-      if (btn) {
-        await btn.click();
-        await page.waitForTimeout(2000);
-        break;
-      }
-    }
-
-    // Scroll completo per caricare tutto il contenuto
     await page.evaluate(() => {
       const el = document.querySelector('page-call-detail-transcript');
       if (el) el.scrollTop = el.scrollHeight;
     });
     await page.waitForTimeout(2000);
 
-    // Clic sul pulsante "Resume Auto-Scroll" se presente
-    const autoScrollBtn = await page.$('text="Resume Auto-Scroll"');
-    if (autoScrollBtn) {
-      await autoScrollBtn.click();
-      await page.waitForTimeout(1500);
-    }
-
-    // Estrai i testi dai blocchi transcript
-    let transcriptElements = await page.$$(
+    const transcriptElements = await page.$$(
       'page-call-detail-transcript div[class*="transcript-line"], div[class*="transcript-text"]'
     );
 
@@ -84,17 +53,18 @@ async function scrapeFathomTranscript(videoUrl) {
         text = await element.evaluate(el => el.textContent || el.innerText);
       }
       const cleanedText = text.trim();
+
       if (
         cleanedText &&
-        !cleanedText.startsWith('[') &&
-        !cleanedText.toLowerCase().includes('resume auto-scroll')
+        !cleanedText.toLowerCase().includes('resume auto-scroll') &&
+        !cleanedText.startsWith('[')
       ) {
         transcript.push(cleanedText);
       }
     }
 
     const transcriptText = transcript.length > 0 ? transcript.join('\n') : 'No transcript found.';
-    console.log('Transcript scraped:', transcriptText);
+    console.log('Transcript scraped successfully');
     return transcriptText;
 
   } catch (error) {
